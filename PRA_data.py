@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
 import csv
 import os
 import time
@@ -51,6 +52,23 @@ def get_batch(option, data_dir, vocab, max_seq_length=50, cutoff=-1):
             break
         
         entry = line.strip().split('\t')
+        # print("="*100)
+        # print(entry[0])
+        # print("="*50)
+        # print(entry[1])
+        # print("="*50)
+        # print(entry[2])
+        # print("="*50)
+        # print(entry[3])
+        # print("="*50)
+        # print(entry[4])
+        # print("="*50)
+        # print(entry[5])
+        # print("="*50)
+        # print(entry[6])
+        # print("Exiting program")
+        # print("-----")
+        # sys.exit()
         index = int(entry[1].split('-')[-1])
         true_label = int(entry[2])
         pred_label = int(entry[3])

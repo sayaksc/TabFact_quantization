@@ -2,8 +2,7 @@ import json
 from collections import Counter
 import random
 from PRA_data import get_batch
-# from Transformer import Encoder, Decoder
-from my_transformer import MultiLayerTransformer as Encoder
+from Transformer import Encoder, Decoder
 import argparse
 import os
 import sys
@@ -12,13 +11,12 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 import time
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy
-import yaml
 
 
 
-config = yaml.safe_load(open("config.yaml", "r"))
+
+config = yaml.safe_load(open("config.yml", "r"))
 max_seq_length = config["max_seq_length"]
 layer_num = config["layer_num"]
 num_epoch = config["num_epoch"]
@@ -27,9 +25,8 @@ learning_rate = config["learning_rate"]
 dropout = config["dropout"]
 emb_dim = config["emb_dim"]
 n_heads = config["n_heads"]
-device = torch.device('mps')
 
-cutoff = 200
+cutoff = 1000
 
 
 
@@ -66,7 +63,8 @@ def parse_opt():
 # torch.autograd.set_detect_anomaly(True)
 
 args = parse_opt()
-
+# device = torch.device('cuda')
+device = torch.device('cpu')
 
 if not os.path.exists(args.output_dir):
     os.mkdir(args.output_dir)
@@ -124,17 +122,15 @@ if args.do_small_test:
 
 print("Loading used {} secs".format(time.time() - start_time))
 
-# encoder_stat = Encoder(vocab_size=len(vocab), d_word_vec=emb_dim, n_layers=layer_num, d_model=emb_dim, n_head=n_heads)
-encoder_stat = Encoder(vocab_size_in=len(vocab), vocab_size_out=2, d_model=emb_dim, n_heads=n_heads, num_layers=layer_num, dropout=dropout, device=device)
-# encoder_prog = Decoder(vocab_size=len(vocab), d_word_vec=emb_dim, n_layers=layer_num, d_model=emb_dim, n_head=n_heads)
+encoder_stat = Encoder(vocab_size=len(vocab), d_word_vec=emb_dim, n_layers=layer_num, d_model=emb_dim, n_head=n_heads)
+encoder_prog = Decoder(vocab_size=len(vocab), d_word_vec=emb_dim, n_layers=layer_num, d_model=emb_dim, n_head=n_heads)
 
 encoder_stat.to(device)
-# encoder_prog.to(device)
+encoder_prog.to(device)
 # classifier.to(device)
 
 
-def evaluate(val_dataloader, encoder_stat):
-    device = encoder_stat.device
+def evaluate(val_dataloader, encoder_stat, encoder_prog):
     mapping = {}
     back_mapping = {}
     all_idexes = set()
@@ -144,9 +140,10 @@ def evaluate(val_dataloader, encoder_stat):
         batch = tuple(t.to(device) for t in batch)
         input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
 
-        logits = encoder_stat(torch.cat((input_ids, prog_ids), dim=-1))[:, -1, :]
-        sigx = logits[:, 1] - logits[:, 0]
-        similarity = torch.sigmoid(sigx)
+        enc_stat = encoder_stat(input_ids)
+        enc_prog, logits = encoder_prog(prog_ids, input_ids, enc_stat)
+
+        similarity = torch.sigmoid(logits)
         #similarity = torch.sigmoid(classifier(torch.cat([enc_stat, enc_prog], -1)).squeeze())
         similarity = similarity.cpu().data.numpy()
         sim = (similarity > args.threshold).astype('float32')
@@ -224,7 +221,7 @@ def evaluate(val_dataloader, encoder_stat):
 
 if args.resume:
     encoder_stat.load_state_dict(torch.load(args.output_dir + "encoder_stat_{}.pt".format(args.id)))
-    # encoder_prog.load_state_dict(torch.load(args.output_dir + "encoder_prog_{}.pt".format(args.id)))
+    encoder_prog.load_state_dict(torch.load(args.output_dir + "encoder_prog_{}.pt".format(args.id)))
     #classifier.load_state_dict(torch.load(args.output_dir + "classifier.pt"))
     print("Reloading saved model {}".format(args.output_dir))
 
@@ -232,12 +229,11 @@ if args.do_train:
     loss_func = torch.nn.BCEWithLogitsLoss(reduction="mean")
     loss_func.to(device)
     encoder_stat.train()
-    # encoder_prog.train()
+    encoder_prog.train()
     # classifier.train()
     print("Start Training with {} batches".format(len(train_dataloader)))
 
-    # params = chain(encoder_stat.parameters(), encoder_prog.parameters())
-    params = encoder_stat.parameters()
+    params = chain(encoder_stat.parameters(), encoder_prog.parameters())
     optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, params),
                                  lr=learning_rate, betas=(0.9, 0.98), eps=0.9e-09)
     best_accuracy = 0
@@ -247,11 +243,11 @@ if args.do_train:
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
 
             encoder_stat.zero_grad()
-            # encoder_prog.zero_grad()
+            encoder_prog.zero_grad()
             optimizer.zero_grad()
 
-            logits = encoder_stat(torch.cat((input_ids, prog_ids), dim=-1))[:, -1, :]
-            # enc_prog, logits = encoder_prog(prog_ids, input_ids, enc_stat)
+            enc_stat = encoder_stat(input_ids)
+            enc_prog, logits = encoder_prog(prog_ids, input_ids, enc_stat)
             """
 			mag_stat = torch.norm(enc_stat, p=2, dim=1)
 			mag_prog = torch.norm(enc_prog, p=2, dim=1)
@@ -259,8 +255,7 @@ if args.do_train:
 
 			loss = -torch.mean(torch.log(similarity))
 			"""
-            # loss = loss_func(logits, labels)
-            loss = F.cross_entropy(logits, labels.long())
+            loss = loss_func(logits, labels)
 
             similarity = torch.sigmoid(logits)
             pred = (similarity > args.threshold).float()
@@ -269,39 +264,29 @@ if args.do_train:
             optimizer.step()
 
             if (step + 1) % 1 == 0:
-                print("Loss function = {}".format(loss.item()))
+                print("Loss function = {}".format(loss.item()),
+                      list(pred[:10].cpu().data.numpy()),
+                      list(labels[:10].cpu().data.numpy()))
 
             if (step + 1) % 200 == 0:
                 encoder_stat.eval()
-                # encoder_prog.eval()
+                encoder_prog.eval()
                 # classifier.eval()
 
-                precision, recall, accuracy = evaluate(val_dataloader, encoder_stat)
+                precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, encoder_prog)
 
                 if accuracy > best_accuracy:
                     torch.save(encoder_stat.state_dict(), args.output_dir + "encoder_stat_{}.pt".format(args.id))
-                    # torch.save(encoder_prog.state_dict(), args.output_dir + "encoder_prog_{}.pt".format(args.id))
+                    torch.save(encoder_prog.state_dict(), args.output_dir + "encoder_prog_{}.pt".format(args.id))
                     #torch.save(classifier.state_dict(), args.output_dir + "classifier.pt")
                     best_accuracy = accuracy
 
                 encoder_stat.train()
-                # encoder_prog.train()
+                encoder_prog.train()
                 # classifier.train()
 
 if args.do_val or args.do_test or args.do_simple_test or args.do_complex_test or args.do_small_test:
     encoder_stat.eval()
-    # encoder_prog.eval()
+    encoder_prog.eval()
     # classifier.eval()
-    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat)
-    print("Accuracy:", accuracy)
-    
-    # Move to CPU and convert to float16
-    encoder_stat = encoder_stat.to('cpu', dtype=torch.float32)  # First ensure float32 on CPU
-    encoder_stat.update_dtype_device(dtype=torch.float32, device=torch.device('cpu'))
-    
-    # Now convert to float16
-    encoder_stat = encoder_stat.half()  # Use half() to convert all parameters to float16
-    encoder_stat.update_dtype_device(dtype=torch.float16, device=torch.device('cpu'))
-    
-    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat)
-    print("Accuracy with float16:", accuracy)
+    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, encoder_prog)
