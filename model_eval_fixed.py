@@ -29,7 +29,7 @@ emb_dim = config["emb_dim"]
 n_heads = config["n_heads"]
 device = torch.device('mps')
 
-cutoff = 200
+cutoff = 10000
 
 
 
@@ -128,12 +128,15 @@ encoder_stat.to(device)
 
 
 def evaluate(val_dataloader, encoder_stat):
+    
     device = encoder_stat.device
     mapping = {}
     TP, TN, FN, FP = 0, 0, 0, 0
     
     with torch.no_grad():  # Disable gradient computation for faster evaluation
         for val_step, batch in enumerate(val_dataloader):
+            if val_step > 100:
+                break
             batch = tuple(t.to(device) for t in batch)
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
 

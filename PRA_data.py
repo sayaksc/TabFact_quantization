@@ -47,6 +47,8 @@ def get_batch(option, data_dir, vocab, max_seq_length=50, cutoff=-1):
     pos_buf = []
     neg_buf = []
     examples = []
+
+    
     for lid, line in enumerate(f):
         if lid > cutoff and cutoff > 0:
             break
