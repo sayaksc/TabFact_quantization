@@ -141,12 +141,15 @@ def evaluate(val_dataloader, encoder_stat):
             sigx = logits[:, 1] - logits[:, 0]
             similarity = torch.sigmoid(sigx)
             
-            similarity = similarity.cpu().data.numpy()
-            sim = (similarity > args.threshold).astype('float32')
-            labels = labels.cpu().data.numpy()
-            index = index.cpu().data.numpy()
-            true_lab = true_lab.cpu().data.numpy()
-            pred_lab = pred_lab.cpu().data.numpy()
+            # similarity = similarity.cpu().data.numpy()
+            sim = (similarity > args.threshold).float()
+            # labels = labels.cpu().data.numpy()
+            # print("Ones fraction:", labels.sum()/len(labels))
+            # print(labels.shape)
+            # sys.exit()
+            # index = index.cpu().data.numpy()
+            # true_lab = true_lab.cpu().data.numpy()
+            # pred_lab = pred_lab.cpu().data.numpy()
 
             TP += ((sim == 1) & (labels == 1)).sum()
             TN += ((sim == 0) & (labels == 0)).sum()
@@ -156,24 +159,26 @@ def evaluate(val_dataloader, encoder_stat):
             # Simple mapping for per-example tracking
             if not args.voting:
                 for i, s, p, t in zip(index, similarity, pred_lab, true_lab):
+                    i = i.item()  # Convert index to Python int for dictionary key
                     if i not in mapping:
-                        mapping[i] = [s, float(p), int(t)]
+                        mapping[i] = [s.item(), p.item(), t.item()]
                     else:
-                        if s > mapping[i][0]:
-                            mapping[i] = [s, float(p), int(t)]
+                        if s.item() > mapping[i][0]:
+                            mapping[i] = [s.item(), p.item(), t.item()]
             else:
                 factor = 2
                 for i, s, p, t in zip(index, similarity, pred_lab, true_lab):
+                    i = i.item()  # Convert index to Python int for dictionary key
                     if i not in mapping:
                         if p == 1:
-                            mapping[i] = [factor * s, s, t]
+                            mapping[i] = [factor * s.item(), s.item(), t.item()]
                         else:
-                            mapping[i] = [-s, s, t]
+                            mapping[i] = [-s.item(), s.item(), t.item()]
                     else:
                         if p == 1:
-                            mapping[i][0] += factor * s
+                            mapping[i][0] += factor * s.item()
                         else:
-                            mapping[i][0] -= s
+                            mapping[i][0] -= s.item()
 
     precision = TP / (TP + FP + 0.001)
     recall = TP / (TP + FN + 0.001)
@@ -222,6 +227,7 @@ if args.do_train:
                                  lr=learning_rate, betas=(0.9, 0.98), eps=0.9e-09)
     best_accuracy = 0
     for epoch in range(num_epoch):
+        print(f"Epoch: {epoch}" + "="*20)
         for step, batch in enumerate(train_dataloader):
             batch = tuple(t.to(device) for t in batch)
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
@@ -248,10 +254,11 @@ if args.do_train:
             loss.backward()
             optimizer.step()
 
-            if (step + 1) % 1 == 0:
+            if (step + 1) % 100 == 0:
                 print("Loss function = {}".format(loss.item()))
 
-            if (step + 1) % 200 == 0:
+            if (step + 1) % 1 == 0:
+                # print(step)
                 encoder_stat.eval()
                 # encoder_prog.eval()
                 # classifier.eval()

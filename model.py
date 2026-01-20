@@ -242,6 +242,8 @@ if args.do_train:
                                  lr=learning_rate, betas=(0.9, 0.98), eps=0.9e-09)
     best_accuracy = 0
     for epoch in range(num_epoch):
+        print(f"Epoch: {epoch + 1}")
+        
         for step, batch in enumerate(train_dataloader):
             batch = tuple(t.to(device) for t in batch)
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
