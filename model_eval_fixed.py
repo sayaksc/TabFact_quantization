@@ -136,7 +136,7 @@ def evaluate(val_dataloader, encoder_stat, cutoff_val):
     
     with torch.no_grad():  # Disable gradient computation for faster evaluation
         for val_step, batch in enumerate(val_dataloader):
-            if val_step > cutoff_val:
+            if val_step > cutoff_val and cutoff_val > 0:
               break
             batch = tuple(t.to(device) for t in batch)
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
@@ -221,7 +221,7 @@ def evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, m_max, e_max):
     
     with torch.no_grad():  # Disable gradient computation for faster evaluation
         for val_step, batch in enumerate(val_dataloader):
-            if val_step > cutoff_val:
+            if val_step > cutoff_val and cutoff_val > 0:
               break
             batch = tuple(t.to(device) for t in batch)
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
