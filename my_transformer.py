@@ -5,8 +5,7 @@ import math
 
 
 
-
-def quantize(x,m_max=8, e_max=8):
+def quantize2(x,m_max=8, e_max=8):
 
     x = x.clone()
 
@@ -20,6 +19,54 @@ def quantize(x,m_max=8, e_max=8):
     quantized_x[e < -(e_max-1)] = 0.0
     quantized_x[e > (e_max-1)] = (1-2**(-m_max+1)) * 2**(e_max-1) * torch.sign(quantized_x[e > (e_max-1)])
 
+    return quantized_x
+
+
+
+
+def quantize(x,m_max=8, e_max=8):
+
+    x = x.clone()
+    x_min = max(x.min(), -2**(e_max-1) * (1-2**(-m_max+1)))
+    x = x - x_min
+    x_max = min(x.max(), 2**(e_max-1) * (1-2**(-m_max+1)))
+    x = x / (x_max + 1e-9)
+
+    m, e = torch.frexp(x)
+
+    m = torch.round(m * (2**(m_max-1))) / (2**(m_max-1))
+
+
+    quantized_x = m * (2.0 ** e)
+
+    quantized_x[e < -(e_max-1)] = 0.0
+    quantized_x[e > (e_max-1)] = (1-2**(-m_max+1)) * 2**(e_max-1) * torch.sign(quantized_x[e > (e_max-1)])
+
+    quantized_x = quantized_x * (x_max +1e-9) + x_min
+    return quantized_x
+
+
+def quantize3(x,m_max=8, e_max=8):
+
+
+
+    x = x.clone()
+    x_min = max(x.min(), -2**(e_max-1) * (1-2**(-m_max+1)))
+    x = x - x_min
+    x_max = min(x.max(), 2**(e_max-1) * (1-2**(-m_max+1)))
+    x = x / (x_max + 1e-9)
+
+    m, e = torch.frexp(x)
+
+    m = torch.round(m * (2**(m_max-1))) / (2**(m_max-1))
+
+
+    quantized_x = m * (2.0 ** e)
+
+    quantized_x[e < -(e_max-1)] = 0.0
+    quantized_x[e > 0] = 1 * torch.sign(quantized_x[e > 0])
+
+    quantized_x = quantized_x * (x_max +1e-9) + x_min
     return quantized_x
 
 

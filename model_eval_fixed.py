@@ -27,9 +27,10 @@ learning_rate = config["learning_rate"]
 dropout = config["dropout"]
 emb_dim = config["emb_dim"]
 n_heads = config["n_heads"]
-device = torch.device('mps')
+device = torch.device('cuda')
 
-cutoff = 10000
+cutoff = 200
+cutoff_val = 2
 
 
 
@@ -127,16 +128,16 @@ encoder_stat.to(device)
 # classifier.to(device)
 
 
-def evaluate(val_dataloader, encoder_stat):
-    
+def evaluate(val_dataloader, encoder_stat, cutoff_val):
+
     device = encoder_stat.device
     mapping = {}
     TP, TN, FN, FP = 0, 0, 0, 0
     
     with torch.no_grad():  # Disable gradient computation for faster evaluation
         for val_step, batch in enumerate(val_dataloader):
-            if val_step > 100:
-                break
+            if val_step > cutoff_val:
+              break
             batch = tuple(t.to(device) for t in batch)
             input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
 
@@ -210,6 +211,98 @@ def evaluate(val_dataloader, encoder_stat):
     return precision, recall, accuracy
 
 
+
+
+def evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, m_max, e_max):
+
+    device = encoder_stat.device
+    mapping = {}
+    TP, TN, FN, FP = 0, 0, 0, 0
+    
+    with torch.no_grad():  # Disable gradient computation for faster evaluation
+        for val_step, batch in enumerate(val_dataloader):
+            if val_step > cutoff_val:
+              break
+            batch = tuple(t.to(device) for t in batch)
+            input_ids, prog_ids, labels, index, true_lab, pred_lab = batch
+
+            logits = encoder_stat(torch.cat((input_ids, prog_ids), dim=-1), quantization=True, m_max=m_max, e_max=e_max)[:, -1, :]
+            sigx = logits[:, 1] - logits[:, 0]
+            similarity = torch.sigmoid(sigx)
+            
+            # similarity = similarity.cpu().data.numpy()
+            sim = (similarity > args.threshold).float()
+            # labels = labels.cpu().data.numpy()
+            # print("Ones fraction:", labels.sum()/len(labels))
+            # print(labels.shape)
+            # sys.exit()
+            # index = index.cpu().data.numpy()
+            # true_lab = true_lab.cpu().data.numpy()
+            # pred_lab = pred_lab.cpu().data.numpy()
+
+            TP += ((sim == 1) & (labels == 1)).sum()
+            TN += ((sim == 0) & (labels == 0)).sum()
+            FN += ((sim == 0) & (labels == 1)).sum()
+            FP += ((sim == 1) & (labels == 0)).sum()
+
+            # Simple mapping for per-example tracking
+            if not args.voting:
+                for i, s, p, t in zip(index, similarity, pred_lab, true_lab):
+                    i = i.item()  # Convert index to Python int for dictionary key
+                    if i not in mapping:
+                        mapping[i] = [s.item(), p.item(), t.item()]
+                    else:
+                        if s.item() > mapping[i][0]:
+                            mapping[i] = [s.item(), p.item(), t.item()]
+            else:
+                factor = 2
+                for i, s, p, t in zip(index, similarity, pred_lab, true_lab):
+                    i = i.item()  # Convert index to Python int for dictionary key
+                    if i not in mapping:
+                        if p == 1:
+                            mapping[i] = [factor * s.item(), s.item(), t.item()]
+                        else:
+                            mapping[i] = [-s.item(), s.item(), t.item()]
+                    else:
+                        if p == 1:
+                            mapping[i][0] += factor * s.item()
+                        else:
+                            mapping[i][0] -= s.item()
+
+    precision = TP / (TP + FP + 0.001)
+    recall = TP / (TP + FN + 0.001)
+    print("TP: {}, FP: {}, FN: {}, TN: {}. precision = {}: recall = {}".format(TP, FP, FN, TN, precision, recall))
+
+    # Calculate accuracy from mapping
+    if not args.voting:
+        success, fail = 0, 0
+        for i, line in mapping.items():
+            if line[1] == line[2]:
+                success += 1
+            else:
+                fail += 1
+        print("success = {}, fail = {}, accuracy = {}".format(success, fail, success / (success + fail + 0.001)))
+        accuracy = success / (success + fail + 0.001)
+    else:
+        success, fail = 0, 0
+        for i, ent in mapping.items():
+            if (ent[0] > 0 and ent[2] == 1) or (ent[0] < 0 and ent[2] == 0):
+                success += 1
+            else:
+                fail += 1
+        print("success = {}, fail = {}, accuracy = {}".format(success, fail, success / (success + fail + 0.001)))
+        accuracy = success / (success + fail + 0.001)
+    
+    return precision, recall, accuracy
+
+
+
+
+
+
+
+
+
 if args.resume:
     encoder_stat.load_state_dict(torch.load(args.output_dir + "encoder_stat_{}.pt".format(args.id)))
     # encoder_prog.load_state_dict(torch.load(args.output_dir + "encoder_prog_{}.pt".format(args.id)))
@@ -257,16 +350,16 @@ if args.do_train:
             loss.backward()
             optimizer.step()
 
-            if (step + 1) % 100 == 0:
+            if (step + 1) % 5 == 0:
                 print("Loss function = {}".format(loss.item()))
 
-            if (step + 1) % 1 == 0:
+            if (step + 1) % 5 == 0:
                 # print(step)
                 encoder_stat.eval()
                 # encoder_prog.eval()
                 # classifier.eval()
 
-                precision, recall, accuracy = evaluate(val_dataloader, encoder_stat)
+                precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
 
                 if accuracy > best_accuracy:
                     torch.save(encoder_stat.state_dict(), args.output_dir + "encoder_stat_{}.pt".format(args.id))
@@ -278,20 +371,32 @@ if args.do_train:
                 # encoder_prog.train()
                 # classifier.train()
 
+
+  
+
 if args.do_val or args.do_test or args.do_simple_test or args.do_complex_test or args.do_small_test:
     encoder_stat.eval()
     # encoder_prog.eval()
     # classifier.eval()
-    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat)
+    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
     print("Accuracy:", accuracy)
+
+    t, e = 24, 8
+    t, e = 5, 3
+
+
+    precision, recall, accuracy = evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, t, e)
     
-    # Move to CPU and convert to float16
-    encoder_stat = encoder_stat.to('cpu', dtype=torch.float32)  # First ensure float32 on CPU
-    encoder_stat.update_dtype_device(dtype=torch.float32, device=torch.device('cpu'))
+    print("Quantized Accuracy:", accuracy)
+    # # Move to CPU and convert to float16
+    # encoder_stat = encoder_stat.to('cpu', dtype=torch.float32)  # First ensure float32 on CPU
+    # encoder_stat.update_dtype_device(dtype=torch.float32, device=torch.device('cpu'))
     
-    # Now convert to float16
-    encoder_stat = encoder_stat.half()  # Use half() to convert all parameters to float16
-    encoder_stat.update_dtype_device(dtype=torch.float16, device=torch.device('cpu'))
+    # # Now convert to float16
+    # encoder_stat = encoder_stat.half()  # Use half() to convert all parameters to float16
+    # encoder_stat.update_dtype_device(dtype=torch.float16, device=torch.device('cpu'))
     
-    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat)
-    print("Accuracy with float16:", accuracy)
+    # precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
+    # print("Accuracy with float16:", accuracy)
+
+
