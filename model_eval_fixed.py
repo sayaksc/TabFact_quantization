@@ -350,27 +350,38 @@ if args.do_train:
             loss.backward()
             optimizer.step()
 
-            if (step + 1) % 5 == 0:
+            if (step + 1) % 1000 == 0:
                 print("Loss function = {}".format(loss.item()))
 
-            if (step + 1) % 5 == 0:
-                # print(step)
-                encoder_stat.eval()
-                # encoder_prog.eval()
-                # classifier.eval()
+            # if (step + 1) % 5 == 0:
+            #     # print(step)
+            #     encoder_stat.eval()
+            #     # encoder_prog.eval()
+            #     # classifier.eval()
 
-                precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
+            #     precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
 
-                if accuracy > best_accuracy:
-                    torch.save(encoder_stat.state_dict(), args.output_dir + "encoder_stat_{}.pt".format(args.id))
-                    # torch.save(encoder_prog.state_dict(), args.output_dir + "encoder_prog_{}.pt".format(args.id))
-                    #torch.save(classifier.state_dict(), args.output_dir + "classifier.pt")
-                    best_accuracy = accuracy
+            #     if accuracy > best_accuracy:
+            #         torch.save(encoder_stat.state_dict(), args.output_dir + "encoder_stat_{}.pt".format(args.id))
+            #         # torch.save(encoder_prog.state_dict(), args.output_dir + "encoder_prog_{}.pt".format(args.id))
+            #         #torch.save(classifier.state_dict(), args.output_dir + "classifier.pt")
+            #         best_accuracy = accuracy
 
-                encoder_stat.train()
+            #     encoder_stat.train()
                 # encoder_prog.train()
                 # classifier.train()
+        encoder_stat.eval()
+        precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
+        print("Accuracy:", accuracy)
 
+        t, e = 24, 8
+        t, e = 5, 3
+
+
+        precision, recall, accuracy = evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, t, e)
+        
+        print("Quantized Accuracy:", accuracy)
+        encoder_stat.train()
 
   
 
