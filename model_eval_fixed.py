@@ -385,20 +385,20 @@ if args.do_train:
 
   
 
-if args.do_val or args.do_test or args.do_simple_test or args.do_complex_test or args.do_small_test:
-    encoder_stat.eval()
-    # encoder_prog.eval()
-    # classifier.eval()
-    precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
-    print("Accuracy:", accuracy)
+# if args.do_val or args.do_test or args.do_simple_test or args.do_complex_test or args.do_small_test:
+#     encoder_stat.eval()
+#     # encoder_prog.eval()
+#     # classifier.eval()
+#     precision, recall, accuracy = evaluate(val_dataloader, encoder_stat, cutoff_val)
+#     print("Accuracy:", accuracy)
 
-    t, e = 24, 8
-    t, e = 5, 3
+#     t, e = 24, 8
+#     t, e = 5, 3
 
 
-    precision, recall, accuracy = evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, t, e)
+#     precision, recall, accuracy = evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, t, e)
     
-    print("Quantized Accuracy:", accuracy)
+#     print("Quantized Accuracy:", accuracy)
     # # Move to CPU and convert to float16
     # encoder_stat = encoder_stat.to('cpu', dtype=torch.float32)  # First ensure float32 on CPU
     # encoder_stat.update_dtype_device(dtype=torch.float32, device=torch.device('cpu'))
