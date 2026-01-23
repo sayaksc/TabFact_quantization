@@ -29,8 +29,8 @@ emb_dim = config["emb_dim"]
 n_heads = config["n_heads"]
 device = torch.device('cuda')
 
-cutoff = 200
-cutoff_val = 2
+cutoff = -1
+cutoff_val = 1000
 
 
 
@@ -319,8 +319,9 @@ if args.do_train:
 
     # params = chain(encoder_stat.parameters(), encoder_prog.parameters())
     params = encoder_stat.parameters()
-    optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, params),
-                                 lr=learning_rate, betas=(0.9, 0.98), eps=0.9e-09)
+    # optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, params),
+    #                              lr=learning_rate, betas=(0.9, 0.98), eps=0.9e-09)
+    optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, params), lr=learning_rate)
     best_accuracy = 0
     for epoch in range(num_epoch):
         print(f"Epoch: {epoch}" + "="*20)
@@ -375,7 +376,7 @@ if args.do_train:
         print("Accuracy:", accuracy)
 
         t, e = 24, 8
-        t, e = 5, 3
+        t, e = 4, 4
 
 
         precision, recall, accuracy = evaluate_quantize(val_dataloader, encoder_stat, cutoff_val, t, e)
