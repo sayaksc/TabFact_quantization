@@ -5,6 +5,51 @@ import math
 
 
 
+
+
+
+def quantize(x, m_max=8, e_max=8):
+    #################### FINAL FP quantize
+    # one bit each of m_max, e_max are sign bits
+
+    x = x.clone()
+
+    is_zero = (x == 0)
+    ax = x.abs()
+
+    m, e = torch.frexp(ax)
+
+    sign = torch.sign(x)
+
+    emax = (2**(e_max - 1)-1)
+    emin = -(2**(e_max - 1))
+
+    step = 2**(-m_max+1)
+
+    m_q = torch.round(m /step)*step
+
+    overflow = m_q >= 1
+
+    m_q = torch.where(overflow, m_q/2.0, m_q)
+    e = torch.where(overflow, e+1, e)
+
+    max_finite = (1-step)*(2** emax)
+
+    out_val = torch.ldexp(m_q, e)
+    torch.clamp_(out_val, max=max_finite)
+
+    out_val[e > emax] = max_finite
+    out_val[e < emin] = 0
+
+    out_val[out_val > max_finite] = max_finite
+    out_val = out_val * sign
+    out_val[is_zero] = 0
+
+    return out_val
+
+
+
+
 def quantize2(x,m_max=8, e_max=8):
 
     x = x.clone()
@@ -24,25 +69,25 @@ def quantize2(x,m_max=8, e_max=8):
 
 
 
-def quantize(x,m_max=8, e_max=8):
-
+def quantize_old(x,m_max=8, e_max=8):
+######## New of works best
     x = x.clone()
-    x_min = max(x.min(), -2**(e_max-1) * (1-2**(-m_max+1)))
-    x = x - x_min
-    x_max = min(x.max(), 2**(e_max-1) * (1-2**(-m_max+1)))
-    x = x / (x_max + 1e-9)
+    exp_max = 2**(e_max)-1
+    scale = min(x.abs().max(), 2**(exp_max) * (1-2**(-m_max+1)))
+    scale = max(scale, 2**(-exp_max))
+    x = x / (scale + 1e-9)
 
     m, e = torch.frexp(x)
 
-    m = torch.round(m * (2**(m_max-1))) / (2**(m_max-1))
+    m = torch.round(m * (2**(exp_max))) / (2**(exp_max))
 
 
     quantized_x = m * (2.0 ** e)
 
-    quantized_x[e < -(e_max-1)] = 0.0
-    quantized_x[e > (e_max-1)] = (1-2**(-m_max+1)) * 2**(e_max-1) * torch.sign(quantized_x[e > (e_max-1)])
+    quantized_x[e < -(exp_max)] = 0.0
+    quantized_x[e > (exp_max)] = (1-2**(-m_max+1)) * 2**(exp_max) * torch.sign(quantized_x[e > (exp_max)])
 
-    quantized_x = quantized_x * (x_max +1e-9) + x_min
+    quantized_x = quantized_x * (scale +1e-9) 
     return quantized_x
 
 
